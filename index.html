@@ -5,6 +5,33 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Conferência de Recebimento</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     FIREBASE — MESMO projeto/config do RecebeMais, para escrever na
+     mesma coleção "pendentes" que o RecebeMais lê (nuvem de contagem
+     às cegas). Console: https://console.firebase.google.com
+════════════════════════════════════════════════════════════════ -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script>
+  const FIREBASE_CONFIG = {
+    apiKey: "AIzaSyBTjq1CzNj_wm6xwFLDEUbGGYNpFDxfe6A",
+    authDomain: "recebemais-340ea.firebaseapp.com",
+    projectId: "recebemais-340ea",
+    storageBucket: "recebemais-340ea.firebasestorage.app",
+    messagingSenderId: "154000900066",
+    appId: "1:154000900066:web:677ed6caeeb633cc1783bb"
+  };
+  try{
+    firebase.initializeApp(FIREBASE_CONFIG);
+    firebase.auth().setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+      .catch((e) => console.warn('Não foi possível fixar a persistência do login:', e));
+  }catch(e){
+    console.error('Firebase init falhou (verifique FIREBASE_CONFIG):', e);
+  }
+</script>
+
 <style>
   :root{
     --graphite:#1B1E24;
@@ -332,14 +359,103 @@
     .doc-meta{ gap:14px 24px; }
     .desc{ max-width:180px; }
   }
+
+  /* ---------- login (padrão RecebeMais) ---------- */
+  #loginScreen{
+    position:fixed; inset:0; z-index:99999; display:flex;
+    align-items:center; justify-content:center;
+    background:var(--graphite); padding:20px;
+  }
+  #loginScreen .card{
+    background:var(--panel); border:1px solid var(--line); border-radius:2px;
+    padding:34px 28px; width:100%; max-width:360px;
+  }
+  #loginScreen h1{
+    font-size:26px; margin:0 0 4px; text-align:center;
+  }
+  #loginScreen .sub{
+    text-align:center; margin:0 0 24px; font-size:13px;
+  }
+  #loginScreen label{
+    display:block; font-family:var(--mono); font-size:10.5px; letter-spacing:.08em;
+    text-transform:uppercase; color:var(--paper-dim); margin-bottom:6px;
+  }
+  #loginScreen input{
+    width:100%; padding:11px 12px; margin-bottom:16px;
+    background:var(--panel-raised); border:1px solid var(--line); border-radius:2px;
+    color:var(--paper); font-size:14px; font-family:var(--body);
+  }
+  #loginScreen input:focus{ outline:none; border-color:var(--amber); }
+  #loginScreen button{
+    width:100%; margin-top:4px;
+  }
+  #loginError{
+    display:none; margin-top:14px; padding:10px 12px; border-radius:2px;
+    background:var(--red-dim); color:#F4B8AC; border:1px solid var(--red);
+    font-size:12.5px; line-height:1.4;
+  }
+  #loginSpinner{
+    display:none; text-align:center; margin-top:14px;
+    color:var(--paper-dim); font-family:var(--mono); font-size:12px;
+  }
+  .logout-link{
+    font-family:var(--mono); font-size:11px; letter-spacing:.05em; color:var(--paper-dim);
+    background:none; border:1px solid var(--line); padding:7px 12px; cursor:pointer;
+  }
+  .logout-link:hover{ color:var(--amber); border-color:var(--amber-dim); }
+  .header-row{
+    display:flex; justify-content:space-between; align-items:flex-start; gap:16px;
+  }
+
+  /* ---------- botão nuvem ---------- */
+  .cloud-btn{
+    font-family:var(--mono); font-size:11.5px; letter-spacing:0.05em; color:var(--graphite);
+    background:var(--green); border:1px solid var(--green); padding:10px 18px; cursor:pointer;
+    font-weight:700; display:inline-flex; align-items:center; gap:8px;
+    transition:background .15s, transform .1s;
+  }
+  .cloud-btn:hover{ background:#7BCBA3; }
+  .cloud-btn:active{ transform:translateY(1px); }
+  .cloud-btn:disabled{
+    background:var(--line); border-color:var(--line); color:var(--paper-dim); cursor:not-allowed;
+  }
 </style>
 </head>
 <body>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     LOGIN — mesmo padrão do RecebeMais (Firebase Authentication,
+     mesmo projeto), protege o acesso e identifica quem envia cada
+     contagem para a nuvem.
+════════════════════════════════════════════════════════════════ -->
+<div id="loginScreen">
+  <div class="card">
+    <h1>RecebeMais</h1>
+    <p class="sub">Extrator de planilha — faça login para acessar</p>
+    <form id="loginForm">
+      <label>E-mail</label>
+      <input type="email" id="loginEmail" autocomplete="username" required>
+      <label>Senha</label>
+      <input type="password" id="loginPassword" autocomplete="current-password" required>
+      <button type="submit" class="export-btn">Entrar</button>
+    </form>
+    <div id="loginError"></div>
+    <div id="loginSpinner">Entrando…</div>
+  </div>
+</div>
+
+<div id="appRoot" style="display:none;">
 <div class="wrap">
 
-  <div class="eyebrow">Leitor de romaneio</div>
-  <h1>Quantidade<br>Necessária</h1>
-  <p class="sub">Solte a planilha de recebimento (.xlsx) abaixo. O leitor abre o arquivo localmente, no seu navegador, extrai a quantidade necessária de cada referência e deixa pronta para exportar no modelo padrão.</p>
+  <div class="header-row">
+    <div>
+      <div class="eyebrow">Leitor de romaneio</div>
+      <h1>Quantidade<br>Necessária</h1>
+    </div>
+    <button class="logout-link" id="logoutBtn" type="button">Sair (<span id="cfg-user-email"></span>)</button>
+  </div>
+  <div id="session-countdown" style="font-family:var(--mono);font-size:10.5px;color:var(--paper-dim);text-align:right;margin-top:-10px;margin-bottom:6px;"></div>
+  <p class="sub">Solte a planilha de recebimento (.xlsx) abaixo. O leitor abre o arquivo localmente, no seu navegador, extrai a quantidade necessária, o fornecedor e a unidade de medida de cada referência, e deixa pronto para exportar ou enviar para a nuvem de contagem às cegas do RecebeMais.</p>
 
   <!-- DROPZONE -->
   <div class="dropzone" id="dropzone">
@@ -382,6 +498,7 @@
           <tr>
             <th>Código</th>
             <th>Descrição</th>
+            <th>Unidade</th>
             <th class="num">Qtd. necessária</th>
           </tr>
         </thead>
@@ -389,6 +506,7 @@
       </table>
 
       <div class="reset-row">
+        <button class="cloud-btn" id="cloudBtn" disabled>☁ Enviar para nuvem (RecebeMais)</button>
         <button class="export-btn" id="exportBtn" disabled>⇩ Exportar Excel (modelo LINKPLAS)</button>
         <button class="reset-btn" id="resetBtn">← Ler outra planilha</button>
       </div>
@@ -396,6 +514,8 @@
   </div>
 
 </div>
+
+</div><!-- /appRoot -->
 
 <div class="toast" id="toast"></div>
 
@@ -414,10 +534,106 @@ const tableBody = document.getElementById('tableBody');
 const statTotal = document.getElementById('statTotal');
 const resetBtn = document.getElementById('resetBtn');
 const exportBtn = document.getElementById('exportBtn');
+const cloudBtn = document.getElementById('cloudBtn');
 const toast = document.getElementById('toast');
 
 // holds everything needed to build the LINKPLAS-format export after a file is parsed
 let lastExport = null;
+
+/* ═══════════════════════════════════════════════════════════════
+   LOGIN — padrão RecebeMais (Firebase Authentication, mesmo
+   projeto). Por segurança, a sessão expira sozinha a cada 2 minutos
+   e pede login/senha novamente.
+════════════════════════════════════════════════════════════════ */
+const SESSION_LIMIT_MS = 2 * 60 * 1000; // 2 minutos
+let _sessionTimer = null;
+
+function _armarExpiracaoSessao(auth){
+  if (_sessionTimer) clearTimeout(_sessionTimer);
+  _sessionTimer = setTimeout(() => {
+    auth.signOut();
+  }, SESSION_LIMIT_MS);
+}
+
+function _cancelarExpiracaoSessao(){
+  if (_sessionTimer){ clearTimeout(_sessionTimer); _sessionTimer = null; }
+}
+
+function _iniciarContadorSessao(auth){
+  const el = document.getElementById('session-countdown');
+  const fim = Date.now() + SESSION_LIMIT_MS;
+  if (window._sessionCountdownInterval) clearInterval(window._sessionCountdownInterval);
+  window._sessionCountdownInterval = setInterval(() => {
+    const restante = Math.max(0, fim - Date.now());
+    const m = Math.floor(restante / 60000);
+    const s = Math.floor((restante % 60000) / 1000).toString().padStart(2,'0');
+    if (el) el.textContent = `sessão expira em ${m}:${s}`;
+    if (restante <= 0) clearInterval(window._sessionCountdownInterval);
+  }, 1000);
+}
+
+function _pararContadorSessao(){
+  if (window._sessionCountdownInterval){ clearInterval(window._sessionCountdownInterval); window._sessionCountdownInterval = null; }
+}
+
+function _initAuth(){
+  if (typeof firebase === 'undefined'){
+    const el = document.getElementById('loginError');
+    el.textContent = 'Não foi possível carregar a biblioteca de login. Verifique sua conexão.';
+    el.style.display = 'block';
+    return;
+  }
+  const auth = firebase.auth();
+
+  auth.onAuthStateChanged((user) => {
+    const loginScreen = document.getElementById('loginScreen');
+    const appRoot = document.getElementById('appRoot');
+    if (user){
+      loginScreen.style.display = 'none';
+      appRoot.style.display = 'block';
+      const emailEl = document.getElementById('cfg-user-email');
+      if (emailEl) emailEl.textContent = user.email || '';
+      _armarExpiracaoSessao(auth);
+      _iniciarContadorSessao(auth);
+    } else {
+      appRoot.style.display = 'none';
+      loginScreen.style.display = 'flex';
+      _cancelarExpiracaoSessao();
+      _pararContadorSessao();
+    }
+  });
+
+  document.getElementById('loginForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const email = document.getElementById('loginEmail').value.trim();
+    const senha = document.getElementById('loginPassword').value;
+    const erroEl = document.getElementById('loginError');
+    const spinnerEl = document.getElementById('loginSpinner');
+    erroEl.style.display = 'none';
+    spinnerEl.style.display = 'block';
+    try{
+      await auth.signInWithEmailAndPassword(email, senha);
+      document.getElementById('loginPassword').value = '';
+    } catch (err){
+      console.error(err);
+      const mensagens = {
+        'auth/invalid-email': 'E-mail inválido.',
+        'auth/user-not-found': 'Usuário não encontrado.',
+        'auth/wrong-password': 'Senha incorreta.',
+        'auth/invalid-credential': 'E-mail ou senha incorretos.',
+        'auth/too-many-requests': 'Muitas tentativas — aguarde um pouco e tente de novo.',
+      };
+      erroEl.textContent = mensagens[err.code] || 'Não foi possível entrar. Tente novamente.';
+      erroEl.style.display = 'block';
+    } finally {
+      spinnerEl.style.display = 'none';
+    }
+  });
+
+  document.getElementById('logoutBtn').addEventListener('click', () => auth.signOut());
+}
+_initAuth();
+
 
 function showState(name){
   Object.values(states).forEach(s => s.classList.remove('active'));
@@ -445,10 +661,13 @@ resetBtn.addEventListener('click', () => {
   fileTag.style.display = 'none';
   lastExport = null;
   exportBtn.disabled = true;
+  cloudBtn.disabled = true;
+  cloudBtn.textContent = '☁ Enviar para nuvem (RecebeMais)';
   showState(null);
 });
 
 exportBtn.addEventListener('click', exportToLinkplasTemplate);
+cloudBtn.addEventListener('click', enviarParaNuvemRecebeMais);
 
 function showToast(msg){
   toast.textContent = msg;
@@ -479,7 +698,7 @@ function exportToLinkplasTemplate(){
       item.codigo || '',
       item.descricao || '',
       item.necessario !== null && item.necessario !== undefined ? item.necessario : '',
-      'PC',
+      item.unidade || 'PC',
       nf || ''
     ]);
   });
@@ -517,6 +736,69 @@ function exportToLinkplasTemplate(){
 
   XLSX.writeFile(wb, filename);
   showToast(`Exportado: ${filename}`);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   NUVEM — envia a contagem lida para a coleção "pendentes" no
+   Firestore, no MESMO formato que o RecebeMais espera (ver
+   cloudPickItem em RecebeMais.html): forn, nf, cnpj, criadoPorUid,
+   criadoEm, produtos:[{referencia, descricao, quantidade, unidade}].
+   O RecebeMais, logado com o mesmo usuário, mostra o item no ícone
+   de nuvem e carrega direto na contagem às cegas.
+════════════════════════════════════════════════════════════════ */
+async function enviarParaNuvemRecebeMais(){
+  if(!lastExport || !lastExport.items || !lastExport.items.length){
+    showToast('Nada para enviar ainda — leia uma planilha primeiro.');
+    return;
+  }
+  if(typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length){
+    showToast('Firebase não configurado — não é possível enviar para a nuvem.');
+    return;
+  }
+  const usuario = firebase.auth().currentUser;
+  if(!usuario){
+    showToast('Faça login para enviar para a nuvem.');
+    return;
+  }
+
+  const { items, nf, fornecedor, cnpj, data, emissor, sourceFileName } = lastExport;
+
+  const produtos = items.map(item => ({
+    referencia: item.codigo || '',
+    descricao: item.descricao || '',
+    quantidade: item.necessario !== null && item.necessario !== undefined ? item.necessario : 0,
+    unidade: item.unidade || '',
+  }));
+
+  // metadados extras exibidos no RecebeMais como "informações da nota"
+  const raw = [];
+  if(data)          raw.push({ campo: 'Data de emissão', valor: String(data) });
+  if(emissor)       raw.push({ campo: 'Emissor', valor: String(emissor) });
+  if(sourceFileName) raw.push({ campo: 'Arquivo de origem', valor: String(sourceFileName) });
+
+  const payload = {
+    forn: fornecedor || '',
+    nf: nf || '',
+    cnpj: cnpj || '',
+    produtos,
+    raw,
+    criadoPorUid: usuario.uid,
+    criadoPorEmail: usuario.email || '',
+    criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+  };
+
+  cloudBtn.disabled = true;
+  cloudBtn.textContent = '☁ Enviando…';
+  try{
+    await firebase.firestore().collection('pendentes').add(payload);
+    showToast('Enviado para a nuvem do RecebeMais ✓');
+    cloudBtn.textContent = '☁ Enviado ✓';
+  } catch(err){
+    console.error(err);
+    showToast('Falha ao enviar para a nuvem: ' + (err.message || err));
+    cloudBtn.disabled = false;
+    cloudBtn.textContent = '☁ Enviar para nuvem (RecebeMais)';
+  }
 }
 
 function handleFile(file){
@@ -655,6 +937,7 @@ function processWorkbook(wb){
     else if(v.includes('descri')) colOf.descricao = c;
     else if(v.includes('qtd') && (v.includes('fís') || v.includes('fis'))) colOf.fisico = c;
     else if(v.includes('confer')) colOf.status = c;
+    else if(v.includes('unid') || v === 'un' || v === 'um') colOf.unidade = c;
   }
   if(colOf.codigo === undefined) colOf.codigo = header.col - 10 >= range.s.c ? header.col - 10 : range.s.c;
   if(colOf.fisico === undefined) colOf.fisico = header.col;
@@ -678,7 +961,8 @@ function processWorkbook(wb){
 
     const descricao = colOf.descricao !== undefined ? cellStr(ws, r, colOf.descricao) : '';
     const necessario = cellNum(ws, r, colNecessario);
-    items.push({ codigo, descricao, necessario });
+    const unidade = colOf.unidade !== undefined ? cellStr(ws, r, colOf.unidade) : '';
+    items.push({ codigo, descricao, necessario, unidade });
   }
 
   if(!items.length){
@@ -695,11 +979,13 @@ function renderMeta(ws, range){
   const data = findLabelValue(ws, range, 'Data');
   const fornecedor = findLabelValue(ws, range, 'Fornecedor');
   const emissor = findLabelValue(ws, range, 'Emissor');
+  const cnpj = findLabelValue(ws, range, 'CNPJ') || findLabelValue(ws, range, 'CNPJ Fornecedor');
 
   const fields = [
     ['Nota fiscal', nf],
     ['Data', data],
     ['Fornecedor', fornecedor],
+    ['CNPJ', cnpj],
     ['Emissor', emissor],
   ].filter(([,v]) => v);
 
@@ -711,6 +997,8 @@ function renderMeta(ws, range){
     lastExport.nf = nf || '';
     lastExport.fornecedor = fornecedor || '';
     lastExport.data = data || '';
+    lastExport.cnpj = cnpj || '';
+    lastExport.emissor = emissor || '';
   }
 }
 
@@ -721,6 +1009,7 @@ function renderResults(items){
       <tr>
         <td class="code">${escapeHtml(item.codigo)}</td>
         <td class="desc">${escapeHtml(item.descricao || '—')}</td>
+        <td class="code">${escapeHtml(item.unidade || '—')}</td>
         <td class="num">${fmtNum(item.necessario)}</td>
       </tr>
     `).join('');
@@ -729,6 +1018,7 @@ function renderResults(items){
     lastExport.items = items;
   }
   exportBtn.disabled = false;
+  cloudBtn.disabled = !(typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length && firebase.auth().currentUser);
 
   showState('results');
 }
