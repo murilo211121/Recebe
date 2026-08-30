@@ -289,6 +289,15 @@
     white-space:nowrap;
   }
 
+  .cell-edit{
+    width:100%; background:transparent; border:1px solid transparent;
+    border-radius:2px; padding:4px 6px; margin:-4px -6px;
+    color:inherit; font:inherit; font-family:inherit;
+  }
+  .cell-edit:hover{ border-color:var(--line); }
+  .cell-edit:focus{ outline:none; border-color:var(--amber); background:var(--panel-raised); }
+  .num-edit{ text-align:right; }
+
   .reset-row{
     margin-top:32px;
     display:flex;
@@ -419,6 +428,16 @@
   .cloud-btn:disabled{
     background:var(--line); border-color:var(--line); color:var(--paper-dim); cursor:not-allowed;
   }
+
+  /* ---------- excluir linha da contagem ---------- */
+  .row-del{
+    background:none; border:1px solid var(--line); color:var(--paper-dim);
+    width:26px; height:26px; line-height:1; border-radius:2px; cursor:pointer;
+    font-size:12px; font-family:var(--mono);
+    display:inline-flex; align-items:center; justify-content:center;
+    transition:border-color .15s, color .15s, background .15s;
+  }
+  .row-del:hover{ border-color:var(--red); color:var(--red); background:var(--red-dim); }
 </style>
 </head>
 <body>
@@ -500,6 +519,7 @@
             <th>Descrição</th>
             <th>Unidade</th>
             <th class="num">Qtd. necessária</th>
+            <th class="num"></th>
           </tr>
         </thead>
         <tbody id="tableBody"></tbody>
@@ -930,20 +950,44 @@ function processWorkbook(wb){
 
   // locate columns by scanning the header row for known labels
   const colOf = {};
+  const unidCandidates = [];
+  // termos que costumam aparecer em colunas de "unidade" que NÃO são a
+  // unidade de medida do item (ex.: unidade de negócio, filial, centro de
+  // custo) — usados para não confundir com a unidade de medida real
+  const blacklistUnidade = ['negóc','organiz','centro','filial','empresa','setor',
+    'área','area','requisit','solicit','respons','local','depósito','deposito',
+    'almox','estoque','custo','projeto','negocio'];
+
   for(let c = range.s.c; c <= range.e.c; c++){
     const v = cellStr(ws, headerRow, c).toLowerCase();
     if(!v) continue;
-    if(v.includes('código')) colOf.codigo = c;
-    else if(v.includes('descri')) colOf.descricao = c;
-    else if(v.includes('qtd') && (v.includes('fís') || v.includes('fis'))) colOf.fisico = c;
-    else if(v.includes('confer')) colOf.status = c;
-    else if(v.includes('unid') || v === 'un' || v === 'um') colOf.unidade = c;
+    if(v.includes('código') && colOf.codigo === undefined) colOf.codigo = c;
+    else if(v.includes('descri') && colOf.descricao === undefined) colOf.descricao = c;
+    else if(v.includes('qtd') && (v.includes('fís') || v.includes('fis')) && colOf.fisico === undefined) colOf.fisico = c;
+    else if(v.includes('confer') && colOf.status === undefined) colOf.status = c;
+
+    // candidatas a "unidade de medida": cabeçalho é "un"/"und"/"um" (isolado)
+    // ou contém "unid" — mas só entra na lista se não bater com o blacklist
+    const pareceUnidadeMedida = /^(un|und|um|un\.|und\.|um\.)$/.test(v) || v.includes('unid');
+    if(pareceUnidadeMedida && !blacklistUnidade.some(b => v.includes(b))){
+      unidCandidates.push(c);
+    }
   }
   if(colOf.codigo === undefined) colOf.codigo = header.col - 10 >= range.s.c ? header.col - 10 : range.s.c;
   if(colOf.fisico === undefined) colOf.fisico = header.col;
 
   // "necessário" quantity usually sits immediately to the right of the físico column
   const colNecessario = colOf.fisico + 1;
+
+  // entre as colunas candidatas a "unidade", prioriza a mais próxima da
+  // coluna de Código — nos romaneios usados aqui a unidade de medida do
+  // item costuma ficar perto do código/descrição, não em colunas
+  // administrativas distantes (unidade de negócio, filial etc.)
+  if(unidCandidates.length){
+    const ref = colOf.codigo;
+    unidCandidates.sort((a,b) => Math.abs(a-ref) - Math.abs(b-ref));
+    colOf.unidade = unidCandidates[0];
+  }
 
   // gather rows below header until we run out of codes
   const items = [];
@@ -1005,22 +1049,48 @@ function renderMeta(ws, range){
 function renderResults(items){
   statTotal.textContent = items.length;
 
-  tableBody.innerHTML = items.map(item => `
+  tableBody.innerHTML = items.map((item, idx) => `
       <tr>
-        <td class="code">${escapeHtml(item.codigo)}</td>
-        <td class="desc">${escapeHtml(item.descricao || '—')}</td>
-        <td class="code">${escapeHtml(item.unidade || '—')}</td>
-        <td class="num">${fmtNum(item.necessario)}</td>
+        <td class="code"><input class="cell-edit" type="text" value="${escapeAttr(item.codigo)}"
+              oninput="editItemField(${idx},'codigo',this.value)" title="Editar código/referência"></td>
+        <td class="desc"><input class="cell-edit" type="text" value="${escapeAttr(item.descricao || '')}"
+              oninput="editItemField(${idx},'descricao',this.value)" title="Editar descrição"></td>
+        <td class="code"><input class="cell-edit" type="text" value="${escapeAttr(item.unidade || '')}"
+              oninput="editItemField(${idx},'unidade',this.value)" title="Editar unidade de medida"></td>
+        <td class="num"><input class="cell-edit num-edit" type="number" step="any" value="${item.necessario ?? ''}"
+              oninput="editItemField(${idx},'necessario',this.value)" title="Editar quantidade necessária"></td>
+        <td class="num"><button class="row-del" title="Excluir esta linha da contagem" onclick="deleteItemRow(${idx})">✕</button></td>
       </tr>
     `).join('');
 
   if(lastExport){
     lastExport.items = items;
   }
-  exportBtn.disabled = false;
-  cloudBtn.disabled = !(typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length && firebase.auth().currentUser);
+  const temItens = items.length > 0;
+  exportBtn.disabled = !temItens;
+  cloudBtn.disabled = !temItens || !(typeof firebase !== 'undefined' && firebase.apps && firebase.apps.length && firebase.auth().currentUser);
 
   showState('results');
+}
+
+// Atualiza um campo do item diretamente no modelo, sem re-renderizar a
+// tabela inteira (evita perder o foco/cursor do campo a cada tecla digitada).
+function editItemField(idx, field, value){
+  if(!lastExport || !lastExport.items || !lastExport.items[idx]) return;
+  if(field === 'necessario'){
+    const n = value === '' ? null : Number(value);
+    lastExport.items[idx].necessario = (n === null || isNaN(n)) ? null : n;
+  } else {
+    lastExport.items[idx][field] = value;
+  }
+}
+
+function deleteItemRow(idx){
+  if(!lastExport || !lastExport.items) return;
+  const removido = lastExport.items[idx];
+  lastExport.items.splice(idx, 1);
+  renderResults(lastExport.items);
+  if(removido) showToast(`Linha removida: ${removido.codigo || 'item'}`);
 }
 
 function fmtNum(n){
@@ -1031,6 +1101,9 @@ function escapeHtml(str){
   return String(str).replace(/[&<>"']/g, s => ({
     '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
   }[s]));
+}
+function escapeAttr(str){
+  return escapeHtml(str);
 }
 </script>
 </body>
