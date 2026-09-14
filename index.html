@@ -34,18 +34,18 @@
 
 <style>
   :root{
-    --graphite:#1B1E24;
-    --panel:#22262E;
-    --panel-raised:#2A2F38;
-    --line:#383E4A;
-    --paper:#EDE9E0;
-    --paper-dim:#A9A69E;
-    --amber:#F2A93B;
-    --amber-dim:#8A6A2A;
-    --green:#5FB489;
-    --green-dim:#1E3A2E;
-    --red:#E4634C;
-    --red-dim:#442420;
+    --graphite:#F5F8FC;
+    --panel:#FFFFFF;
+    --panel-raised:#EDF3FC;
+    --line:#DCE6F2;
+    --paper:#152238;
+    --paper-dim:#66788E;
+    --amber:#2563EB;
+    --amber-dim:#9FBFF5;
+    --green:#16A34A;
+    --green-dim:#E6F7ED;
+    --red:#DC2626;
+    --red-dim:#FCEAEA;
     --mono: 'JetBrains Mono', 'Courier New', monospace;
     --disp: 'Barlow Condensed', 'Arial Narrow', sans-serif;
     --body: 'Inter', -apple-system, sans-serif;
@@ -57,7 +57,7 @@
     margin:0;
     min-height:100vh;
     background:
-      radial-gradient(circle at 15% -10%, rgba(242,169,59,0.06), transparent 45%),
+      radial-gradient(circle at 15% -10%, rgba(37,99,235,0.07), transparent 45%),
       var(--graphite);
     color:var(--paper);
     font-family:var(--body);
@@ -159,7 +159,7 @@
     font-family:var(--mono);
     font-size:12px;
     color:var(--amber);
-    background:rgba(242,169,59,0.08);
+    background:rgba(37,99,235,0.08);
     border:1px solid var(--amber-dim);
     padding:6px 12px;
   }
@@ -189,12 +189,12 @@
     margin-top:22px;
     border:1px solid var(--red);
     background:var(--red-dim);
-    color:#F4B8AC;
+    color:#9B1C1C;
     padding:16px 18px;
     font-size:13.5px;
     line-height:1.5;
   }
-  .error b{ color:#fff; }
+  .error b{ color:#7F1D1D; }
 
   /* ---------- results ---------- */
   .results{ margin-top:44px; }
@@ -270,7 +270,7 @@
   thead th.num{ text-align:right; }
   tbody td{
     padding:13px 12px;
-    border-bottom:1px solid rgba(56,62,74,0.55);
+    border-bottom:1px solid rgba(21,34,56,0.08);
     vertical-align:top;
   }
   tbody tr:hover{ background:var(--panel-raised); }
@@ -323,7 +323,7 @@
     font-family:var(--mono);
     font-size:11.5px;
     letter-spacing:0.05em;
-    color:#1B1E24;
+    color:#FFFFFF;
     background:var(--amber);
     border:1px solid var(--amber);
     padding:10px 18px;
@@ -334,7 +334,7 @@
     gap:8px;
     transition:background .15s, transform .1s;
   }
-  .export-btn:hover{ background:#F7BC61; }
+  .export-btn:hover{ background:#1D4FC4; }
   .export-btn:active{ transform:translateY(1px); }
   .export-btn:disabled{
     background:var(--line);
@@ -400,7 +400,7 @@
   }
   #loginError{
     display:none; margin-top:14px; padding:10px 12px; border-radius:2px;
-    background:var(--red-dim); color:#F4B8AC; border:1px solid var(--red);
+    background:var(--red-dim); color:#9B1C1C; border:1px solid var(--red);
     font-size:12.5px; line-height:1.4;
   }
   #loginSpinner{
@@ -418,12 +418,12 @@
 
   /* ---------- botão nuvem ---------- */
   .cloud-btn{
-    font-family:var(--mono); font-size:11.5px; letter-spacing:0.05em; color:var(--graphite);
+    font-family:var(--mono); font-size:11.5px; letter-spacing:0.05em; color:#FFFFFF;
     background:var(--green); border:1px solid var(--green); padding:10px 18px; cursor:pointer;
     font-weight:700; display:inline-flex; align-items:center; gap:8px;
     transition:background .15s, transform .1s;
   }
-  .cloud-btn:hover{ background:#7BCBA3; }
+  .cloud-btn:hover{ background:#128A3E; }
   .cloud-btn:active{ transform:translateY(1px); }
   .cloud-btn:disabled{
     background:var(--line); border-color:var(--line); color:var(--paper-dim); cursor:not-allowed;
@@ -605,7 +605,7 @@ function _initAuth(){
   }
   const auth = firebase.auth();
 
-  auth.onAuthStateChanged((user) => {
+  auth.onAuthStateChanged(async (user) => {
     const loginScreen = document.getElementById('loginScreen');
     const appRoot = document.getElementById('appRoot');
     if (user){
@@ -613,9 +613,22 @@ function _initAuth(){
       appRoot.style.display = 'block';
       const emailEl = document.getElementById('cfg-user-email');
       if (emailEl) emailEl.textContent = user.email || '';
+      // Busca a empresa vinculada a essa conta (mesmo documento
+      // "usuarios/{uid}" que o RecebeMais consulta) — sem isso, o
+      // RecebeMais filtra "pendentes" por empresaId e o item gravado
+      // aqui sem esse campo nunca aparece na lista dele (ver
+      // enviarParaNuvemRecebeMais).
+      try{
+        const doc = await firebase.firestore().collection('usuarios').doc(user.uid).get();
+        window.__minhaEmpresaId = doc.exists ? (doc.data().empresaId || null) : null;
+      }catch(err){
+        console.error('Não foi possível carregar o vínculo de empresa:', err);
+        window.__minhaEmpresaId = null;
+      }
       _armarExpiracaoSessao(auth);
       _iniciarContadorSessao(auth);
     } else {
+      window.__minhaEmpresaId = null;
       appRoot.style.display = 'none';
       loginScreen.style.display = 'flex';
       _cancelarExpiracaoSessao();
@@ -806,6 +819,12 @@ async function enviarParaNuvemRecebeMais(){
     criadoPorEmail: usuario.email || '',
     criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
   };
+  // Contas vinculadas a uma empresa: o RecebeMais filtra "pendentes" por
+  // empresaId nesse caso (ver query em cloudInit), então esse campo
+  // precisa estar presente para o item aparecer na lista dele.
+  if(window.__minhaEmpresaId){
+    payload.empresaId = window.__minhaEmpresaId;
+  }
 
   cloudBtn.disabled = true;
   cloudBtn.textContent = '☁ Enviando…';
